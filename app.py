@@ -1,9 +1,9 @@
+import os
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import google.generativeai as genai
-import os
 
 app = Flask(__name__)
 
@@ -17,11 +17,11 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # --- Gemini Configuration (ข้อมูลของเช่ง) ---
 genai.configure(api_key="AIzaSyAPWqOMXrrNq34NB_1tn1Sapl2LojC3qu0")
 
-# --- ปรับแต่งบุคลิกบอทตรงนี้ (System Instruction) ---
+# --- ปรับแต่งบุคลิก Nurse Buddy ---
 model = genai.GenerativeModel(
     model_name='gemini-1.5-flash',
     system_instruction="""
-    คุณชื่อ 'Nurse Buddy' เป็นพยาบาลอัจฉริยะและผู้ช่วยส่วนตัวของคุณหมอเช่ง
+    คุณคือ 'Nurse Buddy' พยาบาลอัจฉริยะและผู้ช่วยส่วนตัวของคุณหมอเช่ง
     บุคลิก: ใจดี, รอบรู้เรื่องสุขภาพ, พูดจาสุภาพแต่กระชับตรงประเด็น
     หน้าที่: ตอบคำถามสุขภาพเบื้องต้น, ให้กำลังใจคนไข้, และช่วยคุณหมอเช่งจดบันทึก
     ข้อห้าม: ห้ามวินิจฉัยโรคเองแบบฟันธง ให้เน้นแนะนำให้ปรึกษาแพทย์หากมีอาการรุนแรง
@@ -40,15 +40,17 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # รับข้อความจาก LINE แล้วส่งให้ Gemini
+    # ส่งข้อความไปหา Gemini
     user_message = event.message.text
     response = model.generate_content(user_message)
     
-    # ส่งคำตอบกลับไปที่ LINE
+    # ตอบกลับไปที่ LINE
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=response.text)
     )
 
+# --- ส่วนสำคัญสำหรับ Render ---
 if __name__ == "__main__":
-    app.run(port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
