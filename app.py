@@ -1,4 +1,4 @@
-import os
+import os, sys
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -7,50 +7,52 @@ import google.generativeai as genai
 
 app = Flask(__name__)
 
-# --- LINE Configuration (ข้อมูลของเช่ง) ---
-LINE_CHANNEL_ACCESS_TOKEN = 'Jr8sN2y9ZSF8EUSTHDMwSwudlp9Xi8Jgc66Wte89Fqk/v+IjqYC+MRkGt3cHB4cpYuhdklqCKZwHJGb0tNeX0qe/I7YrXADRPUhb2tZ/6dgAGCxkXVCbwAxMIu0rzUtYhgitSd/w5q04nSMezIvPWAdB04t89/1O/w1cDnyilFU='
-LINE_CHANNEL_SECRET = '8cb32016f22c1414bbd599c6ccbb1219'
+# --- CONFIG (เช็คดีๆ ว่าก๊อปมาครบนะ) ---
+LINE_TOKEN = 'Jr8sN2y9ZSF8EUSTHDMwSwudlp9Xi8Jgc66Wte89Fqk/v+IjqYC+MRkGt3cHB4cpYuhdklqCKZwHJGb0tNeX0qe/I7YrXADRPUhb2tZ/6dgAGCxkXVCbwAxMIu0rzUtYhgitSd/w5q04nSMezIvPWAdB04t89/1O/w1cDnyilFU='
+LINE_SECRET = '8cb32016f22c1414bbd599c6ccbb1219'
+GEMINI_KEY = 'AIzaSyAPWqOMXrrNq34NB_1tn1Sapl2LojC3qu0'
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
+line_bot_api = LineBotApi(LINE_TOKEN)
+handler = WebhookHandler(LINE_SECRET)
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- Gemini Configuration (ข้อมูลของเช่ง) ---
-genai.configure(api_key="AIzaSyAPWqOMXrrNq34NB_1tn1Sapl2LojC3qu0")
-
-# --- ปรับแต่งบุคลิก Nurse Buddy ---
-model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    system_instruction="""
-    คุณคือ 'Nurse Buddy' พยาบาลอัจฉริยะและผู้ช่วยส่วนตัวของคุณหมอเช่ง
-    บุคลิก: ใจดี, รอบรู้เรื่องสุขภาพ, พูดจาสุภาพแต่กระชับตรงประเด็น
-    หน้าที่: ตอบคำถามสุขภาพเบื้องต้น, ให้กำลังใจคนไข้, และช่วยคุณหมอเช่งจดบันทึก
-    ข้อห้าม: ห้ามวินิจฉัยโรคเองแบบฟันธง ให้เน้นแนะนำให้ปรึกษาแพทย์หากมีอาการรุนแรง
-    """
-)
+@app.route("/")
+def home():
+    return "Nurse Buddy is Online!"
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
+    print(">>> มีสัญญาณเข้าที่ /callback แล้ว!") # เช็กว่า LINE ส่งมาถึงมั้ย
+    
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        print(">>> Error: ลายเซ็นผิด (Channel Secret อาจจะไม่ตรง)")
         abort(400)
+    except Exception as e:
+        print(f">>> Error อื่นๆ: {e}")
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # ส่งข้อความไปหา Gemini
-    user_message = event.message.text
-    response = model.generate_content(user_message)
+    user_text = event.message.text
+    print(f">>> คุณหมอเช่งพิมพ์มาว่า: {user_text}")
     
-    # ตอบกลับไปที่ LINE
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=response.text)
-    )
+    try:
+        print(">>> กำลังถาม Gemini...")
+        response = model.generate_content(user_text)
+        reply_text = response.text
+        print(f">>> Gemini ตอบว่า: {reply_text}")
+        
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+        print(">>> ส่งข้อความกลับไปที่ LINE เรียบร้อย!")
+    except Exception as e:
+        print(f">>> พังตอนตอบ: {e}")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ระบบขัดข้องนิดหน่อยค่ะคุณหมอ"))
 
-# --- ส่วนสำคัญสำหรับ Render ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
